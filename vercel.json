@@ -1,0 +1,8 @@
+{
+  "version": 2,
+  "rewrites": [
+    { "source": "/webhook", "destination": "/api/webhook" },
+    { "source": "/healthz", "destination": "/api/healthz" },
+    { "source": "/tick", "destination": "/api/tick" }
+  ]
+}

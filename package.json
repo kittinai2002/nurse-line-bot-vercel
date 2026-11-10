@@ -1,0 +1,15 @@
+{
+  "name": "nurse-line-bot-vercel",
+  "version": "2.5.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.14.0"
+  }
+}
