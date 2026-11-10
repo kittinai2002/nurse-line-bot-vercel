@@ -1,6 +1,13 @@
 import {verifySignature, NurseBot} from '../src/bot.mjs';
 import {TursoDatabase} from '../src/turso.mjs';
 
+// Disable Vercel's default body parser so we can read the raw Buffer for HMAC SHA256 verification
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
 let db = null;
 let schemaInit = false;
 
@@ -24,36 +31,43 @@ export default async function handler(req, res) {
   }
 
   const signature = req.headers['x-line-signature'];
-  const channelSecret = process.env.LINE_CHANNEL_SECRET;
+  const channelSecret = (process.env.LINE_CHANNEL_SECRET || '').trim();
 
-  // Read raw body
-  let rawBody = '';
-  if (typeof req.body === 'string') {
-    rawBody = req.body;
-  } else if (Buffer.isBuffer(req.body)) {
-    rawBody = req.body.toString('utf8');
-  } else if (req.body && typeof req.body === 'object') {
-    rawBody = JSON.stringify(req.body);
-  } else {
-    // If body stream is unparsed
-    const chunks = [];
-    for await (const chunk of req) chunks.push(chunk);
-    rawBody = Buffer.concat(chunks).toString('utf8');
+  if (!channelSecret) {
+    console.error('Missing LINE_CHANNEL_SECRET in environment variables');
+    return res.status(500).json({ error: 'missing_channel_secret' });
   }
 
-  if (!verifySignature(rawBody, signature, channelSecret)) {
+  // Read raw body Buffer for HMAC verification
+  let rawBuffer;
+  try {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    rawBuffer = Buffer.concat(chunks);
+  } catch (err) {
+    console.error('Failed to read request body stream', err);
+    return res.status(400).json({ error: 'failed_to_read_body' });
+  }
+
+  if (!verifySignature(rawBuffer, signature, channelSecret)) {
+    console.error('Invalid LINE signature verification');
     return res.status(401).json({ error: 'invalid_signature' });
   }
 
   let body;
   try {
-    body = typeof req.body === 'object' && !Buffer.isBuffer(req.body) ? req.body : JSON.parse(rawBody);
+    body = JSON.parse(rawBuffer.toString('utf8'));
   } catch {
     return res.status(400).json({ error: 'invalid_json' });
   }
 
   if (!Array.isArray(body.events)) {
     return res.status(400).json({ error: 'invalid_events' });
+  }
+
+  // LINE Verify button sends {"events":[], ...}
+  if (body.events.length === 0) {
+    return res.status(200).json({ ok: true, message: 'webhook_verified' });
   }
 
   const database = getDb();
@@ -67,9 +81,9 @@ export default async function handler(req, res) {
   }
 
   const env = {
-    LINE_CHANNEL_SECRET: process.env.LINE_CHANNEL_SECRET,
-    LINE_CHANNEL_ACCESS_TOKEN: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-    LINE_OWNER_USER_ID: process.env.LINE_OWNER_USER_ID
+    LINE_CHANNEL_SECRET: channelSecret,
+    LINE_CHANNEL_ACCESS_TOKEN: (process.env.LINE_CHANNEL_ACCESS_TOKEN || '').trim(),
+    LINE_OWNER_USER_ID: (process.env.LINE_OWNER_USER_ID || '').trim()
   };
 
   // Process all incoming events
